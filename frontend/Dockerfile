@@ -1,0 +1,28 @@
+FROM node:24.14.1-alpine AS build
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY index.html vite.config.ts tsconfig*.json ./
+COPY src ./src
+RUN npm run build
+
+FROM nginxinc/nginx-unprivileged:1.29-alpine
+
+USER root
+RUN apk update \
+    && apk upgrade \
+    && rm -rf /var/cache/apk/*
+
+COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY --from=build /app/dist /usr/share/nginx/html
+
+ENV API_UPSTREAM=api:8000 \
+    NGINX_ENVSUBST_FILTER="^API_UPSTREAM$"
+
+USER 101
+
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://127.0.0.1:8080/health || exit 1
